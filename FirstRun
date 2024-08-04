@@ -1,0 +1,90 @@
+import numpy as np
+import librosa
+import os
+import tensorflow as tf
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Conv2D, MaxPooling2D, Flatten, Dense, Dropout
+from tensorflow.keras.utils import to_categorical
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import LabelEncoder
+from sklearn.metrics import classification_report
+
+# Parameters
+SAMPLE_RATE = 22050
+DURATION = 2.5  # seconds
+SAMPLES_PER_TRACK = SAMPLE_RATE * DURATION
+NUM_CLASSES = 10  # Example, adjust based on your dataset
+
+# Feature Extraction Function
+def extract_features(file_path, sample_rate=SAMPLE_RATE, n_mfcc=13):
+    y, sr = librosa.load(file_path, sr=sample_rate, duration=DURATION)
+    mfccs = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=n_mfcc)
+    return np.mean(mfccs.T, axis=0)
+
+# Load and preprocess the dataset
+def load_data(dataset_path):
+    X = []
+    y = []
+    for dirpath, dirnames, filenames in os.walk(dataset_path):
+        for file_name in filenames:
+            if file_name.endswith('.wav'):
+                file_path = os.path.join(dirpath, file_name)
+                label = dirpath.split("/")[-1]
+                features = extract_features(file_path)
+                X.append(features)
+                y.append(label)
+    return np.array(X), np.array(y)
+
+# Data Augmentation (optional)
+def augment_audio_data(X):
+    augmented_data = []
+    for feature in X:
+        noise = np.random.randn(len(feature))
+        augmented_data.append(feature + 0.005 * noise)
+    return np.array(augmented_data)
+
+# Load Dataset
+dataset_path = 'path/to/your/audio/dataset'
+X, y = load_data(dataset_path)
+
+# Encode labels
+label_encoder = LabelEncoder()
+y_encoded = label_encoder.fit_transform(y)
+y_categorical = to_categorical(y_encoded, num_classes=NUM_CLASSES)
+
+# Train/Test split
+X_train, X_test, y_train, y_test = train_test_split(X, y_categorical, test_size=0.2, random_state=42)
+
+# Data Augmentation
+X_train_augmented = augment_audio_data(X_train)
+X_train_combined = np.vstack((X_train, X_train_augmented))
+y_train_combined = np.vstack((y_train, y_train))
+
+# Model Architecture
+model = Sequential([
+    Conv2D(32, (3, 3), activation='relu', input_shape=(13, 1, 1)),
+    MaxPooling2D((2, 2)),
+    Conv2D(64, (3, 3), activation='relu'),
+    MaxPooling2D((2, 2)),
+    Flatten(),
+    Dense(128, activation='relu'),
+    Dropout(0.5),
+    Dense(NUM_CLASSES, activation='softmax')
+])
+
+# Compile the model
+model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
+
+# Model Training
+model.fit(X_train_combined, y_train_combined, epochs=20, batch_size=32, validation_data=(X_test, y_test))
+
+# Evaluate the model
+y_pred = model.predict(X_test)
+y_pred_classes = np.argmax(y_pred, axis=1)
+y_true_classes = np.argmax(y_test, axis=1)
+
+# Classification Report
+print(classification_report(y_true_classes, y_pred_classes, target_names=label_encoder.classes_))
+
+# Save Model
+model.save('audio_classification_model.h5')

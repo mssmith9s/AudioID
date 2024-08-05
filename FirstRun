@@ -9,7 +9,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.svm import SVC
 from sklearn.metrics import accuracy_score, confusion_matrix
 
-def extract_features(file_path, sample_rate=22050, n_mfcc=13):
+def extract_features(file_path, sample_rate=22050, n_mfcc=13, max_len=1000):
     """
     Extracts MFCC features from an audio file and computes delta and delta-delta features.
     
@@ -17,12 +17,12 @@ def extract_features(file_path, sample_rate=22050, n_mfcc=13):
     - file_path (str): Path to the audio file.
     - sample_rate (int): Sampling rate for audio processing.
     - n_mfcc (int): Number of MFCC features to extract.
+    - max_len (int): Maximum length for padding/truncating features.
     
     Returns:
     - np.ndarray: Array of extracted features.
     """
     try:
-        # Debugging: Print the file path to check if it's correct
         print(f"Processing file: {file_path}")
 
         # Check if the file exists
@@ -40,18 +40,28 @@ def extract_features(file_path, sample_rate=22050, n_mfcc=13):
 
         # Concatenate the MFCC features with delta and delta-delta features
         features = np.concatenate((mfccs, delta_mfccs, delta2_mfccs), axis=0)
-        return features
+
+        # Pad or truncate features to ensure uniform length
+        if features.shape[1] > max_len:
+            features = features[:, :max_len]
+        elif features.shape[1] < max_len:
+            padding = max_len - features.shape[1]
+            features = np.pad(features, ((0, 0), (0, padding)), mode='constant')
+
+        # Flatten the features to be 1D
+        return features.flatten()
 
     except Exception as e:
         print(f"Error processing {file_path}: {e}")
         return None
 
-def load_data(dataset_path):
+def load_data(dataset_path, max_len=1000):
     """
     Loads audio data from the dataset directory and extracts features.
     
     Parameters:
     - dataset_path (str): Path to the dataset directory.
+    - max_len (int): Maximum length for padding/truncating features.
     
     Returns:
     - np.ndarray: Array of extracted features.
@@ -70,7 +80,7 @@ def load_data(dataset_path):
                     print(f"File does not exist: {file_path}")
                     continue
                 
-                features = extract_features(file_path)
+                features = extract_features(file_path, max_len=max_len)
                 if features is not None:
                     X.append(features)
                     label = os.path.basename(dirpath)

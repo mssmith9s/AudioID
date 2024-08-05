@@ -1,150 +1,107 @@
 # Install necessary packages 
-!pip install librosa tensorflow 
+!pip install librosa tensorflow pydub
 
-import numpy as np 
-import librosa 
-import os 
-import tensorflow as tf 
-from tensorflow.keras.models import Sequential 
-from tensorflow.keras.layers import Conv2D, MaxPooling2D, Flatten, Dense, Dropout 
-from tensorflow.keras.utils import to_categorical 
-from sklearn.model_selection import train_test_split 
-from sklearn.preprocessing import LabelEncoder 
-from sklearn.metrics import classification_report, accuracy_score, precision_score, recall_score, f1_score 
+import os
+import numpy as np
+import librosa
+from sklearn.preprocessing import LabelEncoder
+from sklearn.model_selection import train_test_split
+from sklearn.svm import SVC
+from sklearn.metrics import accuracy_score, confusion_matrix
 
-# Parameters 
-SAMPLE_RATE = 22050 
-DURATION = 2.5  # Duration of audio clips in seconds 
-N_MFCC = 40     # Number of MFCC features to extract 
-NUM_CLASSES = 6  # Number of classes in your dataset: unknown, banjo, flute, guitar, saxophone, violin 
-
-# Feature Extraction Function 
-def extract_features(file_path, sample_rate=SAMPLE_RATE, n_mfcc=N_MFCC): 
-    """ 
+def extract_features(file_path, sample_rate=22050, n_mfcc=13):
+    """
     Extracts MFCC features from an audio file and computes delta and delta-delta features.
-     
-    Args: 
-    - file_path (str): Path to the audio file. 
-    - sample_rate (int): Sampling rate for loading audio. 
-    - n_mfcc (int): Number of MFCC features to extract. 
-     
-    Returns: 
-    - np.ndarray: Array of extracted features. 
-    """ 
-    y, sr = librosa.load(file_path, sr=sample_rate, duration=DURATION) 
-    mfccs = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=n_mfcc) 
-    delta_mfccs = librosa.feature.delta(mfccs) 
-    delta_delta_mfccs = librosa.feature.delta(delta_mfccs) 
-    combined_features = np.concatenate([mfccs, delta_mfccs, delta_delta_mfccs], axis=0) 
-    return np.mean(combined_features.T, axis=0) 
-
-# Data Augmentation Function 
-def augment_audio(features): 
-    """ 
-    Augments audio features using time stretching, pitch shifting, and adding noise.
-     
-    Args: 
-    - features (np.ndarray): Array of features to augment. 
-     
-    Returns: 
-    - np.ndarray: Augmented feature set. 
-    """ 
-    augmented_data = [] 
-    for feature in features: 
-        # Time stretching
-        stretched = librosa.effects.time_stretch(feature, rate=0.8)  # Stretching by 20%
-        augmented_data.append(stretched)
-        # Pitch shifting
-        shifted = librosa.effects.pitch_shift(feature, sr=SAMPLE_RATE, n_steps=2) # Shifting up by 2 semitones
-        augmented_data.append(shifted)
-        # Adding noise
-        noise = np.random.randn(len(feature))
-        noised = feature + 0.005 * noise # Adding 0.5% noise
-        augmented_data.append(noised)
-    return np.array(augmented_data) 
-
-# Load and preprocess the dataset 
-def load_data(dataset_path): 
-    """ 
-    Loads and preprocesses audio data from a dataset directory, including subdirectories.
     
-    Args: 
-    - dataset_path (str): Path to the dataset directory. 
+    Parameters:
+    - file_path (str): Path to the audio file.
+    - sample_rate (int): Sampling rate for audio processing.
+    - n_mfcc (int): Number of MFCC features to extract.
     
-    Returns: 
-    - np.ndarray: Feature array. 
-    - np.ndarray: Label array. 
-    """ 
-    X = [] 
-    y = [] 
-    for dirpath, dirnames, filenames in os.walk(dataset_path): 
-        for file_name in filenames: 
-            if file_name.endswith('.mp3'):  # Handle .mp3 files
-                file_path = os.path.join(dirpath, file_name) 
-                label = os.path.basename(dirpath)  # Use the folder name as the label
-                features = extract_features(file_path) 
-                X.append(features) 
-                y.append(label)
+    Returns:
+    - np.ndarray: Array of extracted features.
+    """
+    try:
+        # Debugging: Print the file path to check if it's correct
+        print(f"Processing file: {file_path}")
+
+        # Check if the file exists
+        if not os.path.exists(file_path):
+            print(f"File not found: {file_path}")
+            return None
+        
+        # Load the audio file using librosa directly
+        y, sr = librosa.load(file_path, sr=sample_rate)
+        
+        # Extract MFCC features
+        mfccs = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=n_mfcc)
+        delta_mfccs = librosa.feature.delta(mfccs)
+        delta2_mfccs = librosa.feature.delta(mfccs, order=2)
+
+        # Concatenate the MFCC features with delta and delta-delta features
+        features = np.concatenate((mfccs, delta_mfccs, delta2_mfccs), axis=0)
+        return features
+
+    except Exception as e:
+        print(f"Error processing {file_path}: {e}")
+        return None
+
+def load_data(dataset_path):
+    """
+    Loads audio data from the dataset directory and extracts features.
     
-    X = np.array(X)
-    y = np.array(y)
+    Parameters:
+    - dataset_path (str): Path to the dataset directory.
     
-    print(f"Loaded {len(X)} samples.")
-    if len(X) > 0:
-        print(f"Feature shape: {X[0].shape}")
+    Returns:
+    - np.ndarray: Array of extracted features.
+    - np.ndarray: Array of labels corresponding to the features.
+    """
+    X = []
+    y = []
+
+    for dirpath, _, filenames in os.walk(dataset_path):
+        for file_name in filenames:
+            if file_name.endswith(".mp3"):
+                file_path = os.path.join(dirpath, file_name)
+                
+                # Debugging: Check if file exists before processing
+                if not os.path.exists(file_path):
+                    print(f"File does not exist: {file_path}")
+                    continue
+                
+                features = extract_features(file_path)
+                if features is not None:
+                    X.append(features)
+                    label = os.path.basename(dirpath)
+                    y.append(label)
     
-    return X, y
+    return np.array(X), np.array(y)
 
-# Load Dataset 
-dataset_path = 'C:\\Users\\Mixed\\Desktop\\CS505\\FinalProject\\dataset\\'  # Replace with the actual path to your dataset 
-X, y = load_data(dataset_path) 
+# Test the function
+dataset_path = r'C:\Users\Mixed\Desktop\CS505\FinalProject\dataset'
+X, y = load_data(dataset_path)
 
-# Encode labels 
-label_encoder = LabelEncoder() 
-y_encoded = label_encoder.fit_transform(y) 
-y_categorical = to_categorical(y_encoded, num_classes=NUM_CLASSES) 
+# Encode labels
+label_encoder = LabelEncoder()
+y_encoded = label_encoder.fit_transform(y)
 
-# Train/Test split 
-X_train, X_test, y_train, y_test = train_test_split(X, y_categorical, test_size=0.2, random_state=42) 
+# Split data into training and testing sets
+X_train, X_test, y_train, y_test = train_test_split(X, y_encoded, test_size=0.2, random_state=42)
 
-# Data Augmentation 
-X_train_augmented = augment_audio(X_train) 
-X_train_combined = np.vstack((X_train, X_train_augmented)) 
-y_train_combined = np.vstack((y_train, y_train))  # Duplicate labels to match augmented data 
+# Train an SVM model
+clf = SVC(kernel='linear')
+clf.fit(X_train, y_train)
 
-# Reshape data to fit Conv2D layer requirements 
-X_train_combined = np.expand_dims(X_train_combined, axis=-1)  # Add channel dimension 
-X_test = np.expand_dims(X_test, axis=-1) 
+# Make predictions
+y_pred = clf.predict(X_test)
 
-# Model Architecture 
-model = Sequential([ 
-    Conv2D(32, (3, 3), activation='relu', input_shape=(N_MFCC * 3, 1, 1)),  # Adjust input shape for MFCC concatenation 
-    MaxPooling2D((2, 2)), 
-    Conv2D(64, (3, 3), activation='relu'), 
-    MaxPooling2D((2, 2)), 
-    Flatten(), 
-    Dense(256, activation='relu'), 
-    Dropout(0.5), 
-    Dense(NUM_CLASSES, activation='softmax') 
-]) 
+# Evaluate the model
+accuracy = accuracy_score(y_test, y_pred)
+conf_matrix = confusion_matrix(y_test, y_pred)
 
-# Compile the model 
-model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy']) 
+print(f"Accuracy: {accuracy}")
+print(f"Confusion Matrix:\n{conf_matrix}")
 
-# Model Training with validation 
-history = model.fit(X_train_combined, y_train_combined, epochs=30, batch_size=32, validation_data=(X_test, y_test)) 
-
-# Evaluate the model 
-y_pred = model.predict(X_test) 
-y_pred_classes = np.argmax(y_pred, axis=1) 
-y_true_classes = np.argmax(y_test, axis=1) 
-
-# Print evaluation metrics 
-print("Accuracy:", accuracy_score(y_true_classes, y_pred_classes)) 
-print("Precision:", precision_score(y_true_classes, y_pred_classes, average='weighted')) 
-print("Recall:", recall_score(y_true_classes, y_pred_classes, average='weighted')) 
-print("F1-score:", f1_score(y_true_classes, y_pred_classes, average='weighted')) 
-print(classification_report(y_true_classes, y_pred_classes, target_names=label_encoder.classes_)) 
-
-# Save Model 
-model.save('audio_classification_model.h5')
+print("Classification Report:\n", classification_report(y_test, y_pred))
+print("Confusion Matrix:\n", confusion_matrix(y_test, y_pred))
